@@ -4,8 +4,6 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-// using Microsoft.CodeAnalysis.CSharp.Syntax;
-
 namespace SourceGenerators;
 
 [Generator]
@@ -23,6 +21,7 @@ public sealed class ToDTOGenerator : ISourceGenerator
         var compilation = context.Compilation;
         var syntaxReceiver = (SyntaxReceiver)context.SyntaxReceiver!;
 
+        // Fetch all ToDTO methods.
         var extensionMethods = syntaxReceiver.CandidateMethods
             .Select(methodDeclaration => compilation
                 .GetSemanticModel(methodDeclaration.SyntaxTree)
@@ -30,25 +29,22 @@ public sealed class ToDTOGenerator : ISourceGenerator
             .Where(declaredSymbol => declaredSymbol.IsExtensionMethod)
             .ToImmutableHashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
 
-        // TODO: Check for InvocationExpression of the method!
-        var calls = syntaxReceiver.CandidateInvocations
-            //.Select(methodDeclaration => compilation
-            //   .GetSemanticModel(methodDeclaration.SyntaxTree)
-            ///   .GetSymbolInfo(methodDeclaration).Symbol as IMethodSymbol)
-            //.Select(symbol => symbol?.ToDisplayString())
-            //.Where(name => name?.Contains("ToDTO") == true)
-            .Select(invocation => invocation.Expression.GetType() + " - " + invocation)
-            // .Where(name => name?.Contains("ToDTO") == true)
-            .ToList();
+        // Fetch type type arguments of all calls to the ToDTO methods.
+        var usedTypeArguments = syntaxReceiver.CandidateInvocations
+            .Select(methodDeclaration => compilation
+               .GetSemanticModel(methodDeclaration.SyntaxTree)
+               .GetSymbolInfo(methodDeclaration).Symbol as IMethodSymbol)
+            .Where(symbol => symbol?.TypeParameters.Length == 2)
+            .Select(symbol => new InputOutputPair(symbol!.TypeArguments[0], symbol.TypeArguments[1]))
+            .ToImmutableHashSet();
 
-        var lol = "/* " + calls.Count + ": " + string.Join(Environment.NewLine + "// ", calls) + " */";
-        context.AddSource("GenericPeopleConversionCalls.Generated.cs", lol);
-
-        var code = GenerateConversionMethodCode(extensionMethods);
+        var code = GenerateConversionMethodCode(extensionMethods, usedTypeArguments);
         context.AddSource("GenericPeopleConversion.Generated.cs", code);
     }
 
-    private static string GenerateConversionMethodCode(ImmutableHashSet<IMethodSymbol> extensionMethods)
+    private static string GenerateConversionMethodCode(
+        ImmutableHashSet<IMethodSymbol> extensionMethods,
+        ImmutableHashSet<InputOutputPair> usedTypeArguments)
     {
         var sb = new StringBuilder();
 
@@ -74,6 +70,11 @@ public static partial class GenericPeopleConversion {
             var returnTypeNamespace = methodSymbol.ReturnType.ContainingNamespace.Name;
             var returnTypeName = methodSymbol.ReturnType.Name;
             var returnType = $"{returnTypeNamespace}.{returnTypeName}";
+
+            if (!usedTypeArguments.Contains(new InputOutputPair(methodSymbol.ReturnType, methodSymbol.Parameters.Single().Type)))
+            {
+                continue;
+            }
 
             sb.AppendLine($@"
         if (typeof(TData) == typeof({parameterType}) && typeof(TDTO) == typeof({returnType})) {{
@@ -127,6 +128,34 @@ public static partial class GenericPeopleConversion {
                 } ie)
             {
                 CandidateInvocations.Add(ie);
+            }
+        }
+    }
+
+
+    private readonly struct InputOutputPair : IEquatable<InputOutputPair>
+    {
+        public InputOutputPair(ITypeSymbol dtoType, ITypeSymbol dataType)
+        {
+            DtoType = dtoType;
+            DataType = dataType;
+        }
+
+        public ITypeSymbol DtoType { get; }
+        public ITypeSymbol DataType { get; }
+
+        /// <inheritdoc />
+        public bool Equals(InputOutputPair other) => DtoType.Equals(other.DtoType, SymbolEqualityComparer.Default) && DataType.Equals(other.DataType, SymbolEqualityComparer.Default);
+
+        /// <inheritdoc />
+        public override bool Equals(object? obj) => obj is InputOutputPair other && Equals(other);
+
+        /// <inheritdoc />
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (SymbolEqualityComparer.Default.GetHashCode(DtoType) * 397) ^ SymbolEqualityComparer.Default.GetHashCode(DataType);
             }
         }
     }
