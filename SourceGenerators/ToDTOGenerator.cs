@@ -1,4 +1,4 @@
-﻿using System.Linq.Expressions;
+﻿using System.Collections.Immutable;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -14,35 +14,27 @@ public sealed class ToDTOGenerator : ISourceGenerator
     /// <inheritdoc />
     public void Initialize(GeneratorInitializationContext context)
     {
-        // context.RegisterForSyntaxNotifications(() => new SyntaxReceiver());
+        context.RegisterForSyntaxNotifications(() => new SyntaxReceiver());
     }
 
     /// <inheritdoc />
     public void Execute(GeneratorExecutionContext context)
     {
         var compilation = context.Compilation;
+        var syntaxReceiver = (SyntaxReceiver)context.SyntaxReceiver!;
 
-        // var notifyInterface = compilation.GetTypeByMetadataName("System.ComponentModel.INotifyPropertyChanged");
-        var extensionMethods = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
-
-        foreach (var syntaxTree in compilation.SyntaxTrees)
-        {
-            var semanticModel = compilation.GetSemanticModel(syntaxTree);
-
-            // Find all ToDTO extension methods.
-            var methods = syntaxTree.GetRoot().DescendantNodesAndSelf()
-                .OfType<MethodDeclarationSyntax>()
-                .Select(x => semanticModel.GetDeclaredSymbol(x)!)
-                .Where(m => "ToDTO".Equals(m?.Name, StringComparison.Ordinal))
-                .Where(m => m.IsExtensionMethod && m.Parameters.Length == 1);
-            extensionMethods.UnionWith(methods);
-
-            // TODO: Check for InvocationExpression of the method!
-        }
-
-        var names = extensionMethods.Select(m => $@"""{m.ReturnType.Name} <= {m.ReceiverType}.{m.Name}({m.Parameters.Single().Type.Name})""");
+        var extensionMethods = syntaxReceiver.CandidateMethods
+            .Select(methodDeclaration => compilation
+                .GetSemanticModel(methodDeclaration.SyntaxTree)
+                .GetDeclaredSymbol(methodDeclaration)!)
+            .Where(declaredSymbol =>
+                "ToDTO".Equals(declaredSymbol.Name, StringComparison.Ordinal) &&
+                declaredSymbol.IsExtensionMethod &&
+                declaredSymbol.Parameters.Length == 1)
+            .ToImmutableHashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
 
         var sb = new StringBuilder();
+
         sb.Append(@"
 using System;
 
@@ -77,33 +69,32 @@ public static partial class GenericPeopleConversion {
     }
 }");
 
-        context.AddSource(@"lol.cs", sb.ToString());
+        context.AddSource(@"GenericPeopleConversion.Generated.cs", sb.ToString());
     }
 
-#if false
     private sealed class SyntaxReceiver : ISyntaxReceiver
     {
-        public List<MethodDeclarationSyntax> CandidateMethods { get; } = new();
+        public HashSet<MethodDeclarationSyntax> CandidateMethods { get; } = new();
 
         /// <inheritdoc />
         public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
         {
             // We're only interested in syntax events related to method declarations
-            // that have exactly one input parameter as well as a "static" and a "partial" modifier.
+            // that have exactly one input parameter as well as a "static" modifier.
             if (syntaxNode is not MethodDeclarationSyntax
                 {
                     ParameterList.Parameters.Count: 1,
                     Modifiers:
                     {
-                        Count: >= 2
+                        Count: >= 1,
                     } modifiers
                 } mds)
             {
                 return;
             }
 
-            // We cannot process non-partial and non-static methods.
-            if (!modifiers.Any(st => st.ValueText.Equals("partial")) || !modifiers.Any(st => st.ValueText.Equals("static")))
+            // We only process static methods.
+            if (!modifiers.Any(st => st.ValueText.Equals("static")))
             {
                 return;
             }
@@ -111,5 +102,4 @@ public static partial class GenericPeopleConversion {
             CandidateMethods.Add(mds);
         }
     }
-#endif
 }
