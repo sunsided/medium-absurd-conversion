@@ -27,12 +27,29 @@ public sealed class ToDTOGenerator : ISourceGenerator
             .Select(methodDeclaration => compilation
                 .GetSemanticModel(methodDeclaration.SyntaxTree)
                 .GetDeclaredSymbol(methodDeclaration)!)
-            .Where(declaredSymbol =>
-                "ToDTO".Equals(declaredSymbol.Name, StringComparison.Ordinal) &&
-                declaredSymbol.IsExtensionMethod &&
-                declaredSymbol.Parameters.Length == 1)
+            .Where(declaredSymbol => declaredSymbol.IsExtensionMethod)
             .ToImmutableHashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
 
+        // TODO: Check for InvocationExpression of the method!
+        var calls = syntaxReceiver.CandidateInvocations
+            //.Select(methodDeclaration => compilation
+            //   .GetSemanticModel(methodDeclaration.SyntaxTree)
+            ///   .GetSymbolInfo(methodDeclaration).Symbol as IMethodSymbol)
+            //.Select(symbol => symbol?.ToDisplayString())
+            //.Where(name => name?.Contains("ToDTO") == true)
+            .Select(invocation => invocation.Expression.GetType() + " - " + invocation)
+            // .Where(name => name?.Contains("ToDTO") == true)
+            .ToList();
+
+        var lol = "/* " + calls.Count + ": " + string.Join(Environment.NewLine + "// ", calls) + " */";
+        context.AddSource("GenericPeopleConversionCalls.Generated.cs", lol);
+
+        var code = GenerateConversionMethodCode(extensionMethods);
+        context.AddSource("GenericPeopleConversion.Generated.cs", code);
+    }
+
+    private static string GenerateConversionMethodCode(ImmutableHashSet<IMethodSymbol> extensionMethods)
+    {
         var sb = new StringBuilder();
 
         sb.Append(@"
@@ -47,7 +64,8 @@ public static partial class GenericPeopleConversion {
         foreach (var methodSymbol in extensionMethods)
         {
             var methodReceiverType = methodSymbol.ReceiverType!;
-            var methodName = $"{methodReceiverType.ContainingNamespace.Name}.{methodReceiverType.Name}.{methodSymbol.Name}";
+            var methodName =
+                $"{methodReceiverType.ContainingNamespace.Name}.{methodReceiverType.Name}.{methodSymbol.Name}";
 
             var parameterTypeNamespace = methodSymbol.Parameters.Single().Type.ContainingNamespace.Name;
             var parameterTypeName = methodSymbol.Parameters.Single().Type.Name;
@@ -63,43 +81,53 @@ public static partial class GenericPeopleConversion {
         }}");
         }
 
-        sb.Append(@"        throw new InvalidOperationException(""No method found to convert from type {typeof(TData)} to {typeof{TDTO}}"");");
-
+        // TODO: Add an analyzer that prevents this from happening.
+        sb.Append(
+            @"        throw new InvalidOperationException(""No method found to convert from type {typeof(TData)} to {typeof{TDTO}}"");");
         sb.AppendLine(@"
     }
 }");
 
-        context.AddSource(@"GenericPeopleConversion.Generated.cs", sb.ToString());
+        var code = sb.ToString();
+        return code;
     }
 
     private sealed class SyntaxReceiver : ISyntaxReceiver
     {
         public HashSet<MethodDeclarationSyntax> CandidateMethods { get; } = new();
+        public HashSet<InvocationExpressionSyntax> CandidateInvocations { get; } = new();
 
         /// <inheritdoc />
         public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
         {
-            // We're only interested in syntax events related to method declarations
-            // that have exactly one input parameter as well as a "static" modifier.
-            if (syntaxNode is not MethodDeclarationSyntax
+            // Find candidates for "ToDTO" extension methods.
+            // We expect exactly one input parameter as well as a "static" modifier.
+            if (syntaxNode is MethodDeclarationSyntax
                 {
+                    Identifier.Text: "ToDTO",
                     ParameterList.Parameters.Count: 1,
                     Modifiers:
                     {
-                        Count: >= 1,
+                        Count: >= 1
                     } modifiers
-                } mds)
+                } mds &&
+                modifiers.Any(st => st.ValueText.Equals("static")))
             {
-                return;
+                CandidateMethods.Add(mds);
             }
 
-            // We only process static methods.
-            if (!modifiers.Any(st => st.ValueText.Equals("static")))
+            // Likewise, the method invocations must be to a "ToDTO" method with exactly one argument.
+            if (syntaxNode is InvocationExpressionSyntax
+                {
+                    ArgumentList.Arguments.Count: 1,
+                    Expression: MemberAccessExpressionSyntax
+                    {
+                        Name.Identifier.ValueText: "ToDTO",
+                    }
+                } ie)
             {
-                return;
+                CandidateInvocations.Add(ie);
             }
-
-            CandidateMethods.Add(mds);
         }
     }
 }
