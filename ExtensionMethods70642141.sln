@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExtensionMethods70642141", "ExtensionMethods70642141\ExtensionMethods70642141.csproj", "{E783F7D5-E917-4B0B-A3DB-87C7B7C41845}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SourceGenerators", "SourceGenerators\SourceGenerators.csproj", "{7B8B527F-294B-476C-8714-BEF67DCCA981}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E783F7D5-E917-4B0B-A3DB-87C7B7C41845}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E783F7D5-E917-4B0B-A3DB-87C7B7C41845}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E783F7D5-E917-4B0B-A3DB-87C7B7C41845}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E783F7D5-E917-4B0B-A3DB-87C7B7C41845}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7B8B527F-294B-476C-8714-BEF67DCCA981}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B8B527F-294B-476C-8714-BEF67DCCA981}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B8B527F-294B-476C-8714-BEF67DCCA981}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B8B527F-294B-476C-8714-BEF67DCCA981}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
