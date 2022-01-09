@@ -40,30 +40,37 @@ public class ReflectedWithDelegateTests
     {
         var inputType = typeof(TData);
         var outputType = typeof(TDTO);
-        var cacheKey = Tuple.Create(inputType, outputType);
-        if (!_cache.TryGetValue(inputType, out var toDto))
+        if (_cache.TryGetValue(inputType, out var toDto))
         {
-            var methodInfo = typeof(PeopleExtension)
-                .GetMethods(BindingFlags.Static | BindingFlags.Public)
-                .Where(method => method.Name.Equals(nameof(PeopleExtension.ToDTO)))
-                .Where(method => outputType == method.ReturnType)
-                .FirstOrDefault(method => inputType == method.GetParameters().SingleOrDefault()?.ParameterType);
-
-            if (methodInfo is null)
-            {
-                throw new InvalidOperationException($"No conversion from {inputType} to {outputType} was registered");
-            }
-
-            var inputObject = Expression.Parameter(typeof(object), "dataObj");
-            var inputCastToProperType = Expression.Convert(inputObject, inputType);
-            var callExpr = Expression.Call(null, methodInfo, inputCastToProperType);
-            var castResultExpr = Expression.Convert(callExpr, typeof(object));
-            var lambdaExpr = Expression.Lambda<Func<object, object>>(castResultExpr, inputObject);
-
-            toDto = lambdaExpr.Compile();
-            _cache.TryAdd(inputType, toDto);
+            return (TDTO)toDto(data!);
         }
+
+        var methodInfo = GetMatchingMethodInfo(outputType, inputType);
+        if (methodInfo is null)
+        {
+            throw new InvalidOperationException($"No conversion from {inputType} to {outputType} was registered");
+        }
+
+        toDto = CompileLambda(inputType, methodInfo);
+        _cache.TryAdd(inputType, toDto);
 
         return (TDTO)toDto(data!);
     }
+
+    private static Func<object, object> CompileLambda(Type inputType, MethodInfo methodInfo)
+    {
+        var inputObject = Expression.Parameter(typeof(object), "dataObj");
+        var inputCastToProperType = Expression.Convert(inputObject, inputType);
+        var callExpr = Expression.Call(null, methodInfo, inputCastToProperType);
+        var castResultExpr = Expression.Convert(callExpr, typeof(object));
+        var lambdaExpr = Expression.Lambda<Func<object, object>>(castResultExpr, inputObject);
+        return lambdaExpr.Compile();
+    }
+
+    private static MethodInfo? GetMatchingMethodInfo(Type outputType, Type inputType) =>
+        typeof(PeopleExtension)
+            .GetMethods(BindingFlags.Static | BindingFlags.Public)
+            .Where(method => method.Name.Equals(nameof(PeopleExtension.ToDTO)))
+            .Where(method => outputType == method.ReturnType)
+            .FirstOrDefault(method => inputType == method.GetParameters().SingleOrDefault()?.ParameterType);
 }

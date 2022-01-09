@@ -42,55 +42,67 @@ public sealed class ToDTOGenerator : ISourceGenerator
         context.AddSource("GenericPeopleConversion.Generated.cs", code);
     }
 
-    private static string GenerateConversionMethodCode(
-        ImmutableHashSet<IMethodSymbol> extensionMethods,
-        ImmutableHashSet<InputOutputPair> usedTypeArguments)
-    {
-        var sb = new StringBuilder();
+private static string GenerateConversionMethodCode(
+    ImmutableHashSet<IMethodSymbol> extensionMethods,
+    ImmutableHashSet<InputOutputPair> usedTypeArguments)
+{
+    var sb = new StringBuilder();
 
-        sb.Append(@"
+    sb.Append(@"
 using System;
 
 namespace ExtensionMethods70642141;
 
 public static partial class GenericPeopleConversion {
-    public static partial TDTO ToDTO<TDTO, TData>(TData data)
-    {");
+public static partial TDTO ToDTO<TDTO, TData>(TData data)
+{");
 
-        foreach (var methodSymbol in extensionMethods)
+    foreach (var methodSymbol in extensionMethods)
+    {
+        if (!usedTypeArguments.Contains(new InputOutputPair(methodSymbol.ReturnType, methodSymbol.Parameters.Single().Type)))
         {
-            var methodReceiverType = methodSymbol.ReceiverType!;
-            var methodName =
-                $"{methodReceiverType.ContainingNamespace.Name}.{methodReceiverType.Name}.{methodSymbol.Name}";
-
-            var parameterTypeNamespace = methodSymbol.Parameters.Single().Type.ContainingNamespace.Name;
-            var parameterTypeName = methodSymbol.Parameters.Single().Type.Name;
-            var parameterType = $"{parameterTypeNamespace}.{parameterTypeName}";
-
-            var returnTypeNamespace = methodSymbol.ReturnType.ContainingNamespace.Name;
-            var returnTypeName = methodSymbol.ReturnType.Name;
-            var returnType = $"{returnTypeNamespace}.{returnTypeName}";
-
-            if (!usedTypeArguments.Contains(new InputOutputPair(methodSymbol.ReturnType, methodSymbol.Parameters.Single().Type)))
-            {
-                continue;
-            }
-
-            sb.AppendLine($@"
-        if (typeof(TData) == typeof({parameterType}) && typeof(TDTO) == typeof({returnType})) {{
-            return (TDTO)(object){methodName}(({parameterType})(object)data);
-        }}");
+            continue;
         }
 
-        // TODO: Add an analyzer that prevents this from happening.
-        sb.Append(
-            @"        throw new InvalidOperationException(""No method found to convert from type {typeof(TData)} to {typeof{TDTO}}"");");
-        sb.AppendLine(@"
+        var methodName = GetMethodFullName(methodSymbol);
+        var parameterType = GetParameterTypeFullName(methodSymbol);
+        var returnType = GetReturnTypeFullName(methodSymbol);
+
+        sb.AppendLine($@"
+    if (typeof(TData) == typeof({parameterType}) && typeof(TDTO) == typeof({returnType})) {{
+        return (TDTO)(object){methodName}(({parameterType})(object)data);
+    }}");
     }
+
+    // TODO: Add an analyzer that prevents this from happening.
+    sb.Append(
+        @"        throw new InvalidOperationException(""No method found to convert from type {typeof(TData)} to {typeof{TDTO}}"");");
+    sb.AppendLine(@"
+}
 }");
 
-        var code = sb.ToString();
-        return code;
+    return sb.ToString();
+}
+
+    private static string GetMethodFullName(IMethodSymbol methodSymbol)
+    {
+        var methodReceiverType = methodSymbol.ReceiverType!;
+        return
+            $"{methodReceiverType.ContainingNamespace.Name}.{methodReceiverType.Name}.{methodSymbol.Name}";
+    }
+
+    private static string GetReturnTypeFullName(IMethodSymbol methodSymbol)
+    {
+        var returnTypeNamespace = methodSymbol.ReturnType.ContainingNamespace.Name;
+        var returnTypeName = methodSymbol.ReturnType.Name;
+        return $"{returnTypeNamespace}.{returnTypeName}";
+    }
+
+    private static string GetParameterTypeFullName(IMethodSymbol methodSymbol)
+    {
+        var parameterTypeNamespace = methodSymbol.Parameters.Single().Type.ContainingNamespace.Name;
+        var parameterTypeName = methodSymbol.Parameters.Single().Type.Name;
+        return $"{parameterTypeNamespace}.{parameterTypeName}";
     }
 
     private sealed class SyntaxReceiver : ISyntaxReceiver
@@ -132,7 +144,6 @@ public static partial class GenericPeopleConversion {
         }
     }
 
-
     private readonly struct InputOutputPair : IEquatable<InputOutputPair>
     {
         public InputOutputPair(ITypeSymbol dtoType, ITypeSymbol dataType)
@@ -145,17 +156,20 @@ public static partial class GenericPeopleConversion {
         public ITypeSymbol DataType { get; }
 
         /// <inheritdoc />
-        public bool Equals(InputOutputPair other) => DtoType.Equals(other.DtoType, SymbolEqualityComparer.Default) && DataType.Equals(other.DataType, SymbolEqualityComparer.Default);
+        public bool Equals(InputOutputPair other) =>
+            DtoType.Equals(other.DtoType, SymbolEqualityComparer.Default) && DataType.Equals(other.DataType, SymbolEqualityComparer.Default);
 
         /// <inheritdoc />
-        public override bool Equals(object? obj) => obj is InputOutputPair other && Equals(other);
+        public override bool Equals(object? obj) =>
+            obj is InputOutputPair other && Equals(other);
 
         /// <inheritdoc />
         public override int GetHashCode()
         {
             unchecked
             {
-                return (SymbolEqualityComparer.Default.GetHashCode(DtoType) * 397) ^ SymbolEqualityComparer.Default.GetHashCode(DataType);
+                return (SymbolEqualityComparer.Default.GetHashCode(DtoType) * 397) ^
+                       SymbolEqualityComparer.Default.GetHashCode(DataType);
             }
         }
     }
